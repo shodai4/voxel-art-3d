@@ -1,76 +1,18 @@
-name: iOS Build
-
+name: iOS TestFlight
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ios-build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  build:
-    name: Build VoxelArt3D (SwiftUI + SceneKit)
-    runs-on: macos-latest
-
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 45
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Show Xcode version
-        run: |
-          ls -d /Applications/Xcode*.app || true
-          xcodebuild -version
-          swift --version
-
-      - name: Install XcodeGen
-        run: |
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew install xcodegen
-          fi
-          xcodegen --version
-
-      - name: Generate Xcode project
-        run: |
-          xcodegen generate
-          ls -la
-          xcodebuild -list -project VoxelArt3D.xcodeproj
-
-      - name: Build for iOS Simulator
-        run: |
-          set -o pipefail
-          xcodebuild build \
-            -project VoxelArt3D.xcodeproj \
-            -scheme VoxelArt3D \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
-
-      - name: Verify built app bundle
-        run: |
-          APP=$(find build/DerivedData/Build/Products -name 'VoxelArt3D.app' -maxdepth 3 | head -n 1)
-          echo "APP=$APP"
-          test -n "$APP"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
-
-      - name: Job summary
-        if: always()
-        run: |
-          {
-            echo "### VoxelArt3D - iOS Build"
-            echo ""
-            echo "- Runner: \`macos-latest\`"
-            echo "- Build: \`xcodebuild build\` / scheme \`VoxelArt3D\` / destination \`generic/platform=iOS Simulator\`"
-            echo "- Signing: disabled (CODE_SIGNING_ALLOWED=NO)"
-            echo "- Result: ${{ job.status }}"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+      - env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bash scripts/ci-testflight.sh
