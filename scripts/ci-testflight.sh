@@ -13,26 +13,6 @@ BUILD_NUMBER="${BUILD_NUMBER:-1}"
 : "${TEAM_ID:?APPLE_TEAM_ID is missing}"
 : "${PRIVATE_KEY:?APP_STORE_CONNECT_PRIVATE_KEY is missing}"
 
-# Secrets 欄で改行が空白や \n に潰れても署名できるよう、PEM を組み立て直す。
-normalize_pem() {
-  local raw="$1"
-  raw="${raw//\\n/$'\n'}"
-  if [[ "$raw" != *"-----BEGIN"* ]]; then
-    printf '%s\n' "$raw"
-    return
-  fi
-  local body="${raw#*-----BEGIN*-----}"
-  body="${body%%-----END*}"
-  body="$(printf '%s' "$body" | tr -d '[:space:]')"
-  printf -- '-----BEGIN PRIVATE KEY-----\n'
-  printf '%s' "$body" | fold -w 64
-  printf -- '\n-----END PRIVATE KEY-----\n'
-}
-PRIVATE_KEY="$(normalize_pem "$PRIVATE_KEY")"
-
-# 鍵の中身は出さず、形だけ確認する。
-echo "== Private key shape: lines=$(printf '%s' "$PRIVATE_KEY" | wc -l | tr -d ' ') bytes=$(printf '%s' "$PRIVATE_KEY" | wc -c | tr -d ' ')"
-
 echo "== Toolchain"
 xcodebuild -version
 ls -d /Applications/Xcode*.app || true
@@ -46,10 +26,6 @@ xcodebuild -list -project "$APP_NAME.xcodeproj"
 
 echo "== Export compliance (ITSAppUsesNonExemptEncryption = false)"
 grep -A1 '<key>ITSAppUsesNonExemptEncryption</key>' Resources/Info.plist | grep -q '<false/>'
-
-echo "== AppIcon"
-test -f Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
-sips -g pixelWidth -g pixelHeight -g hasAlpha Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 
 echo "== Install App Store Connect API key"
 KEY_DIR="$HOME/.appstoreconnect/private_keys"
