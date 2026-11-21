@@ -18,7 +18,7 @@ enum VideoExporter {
         var errorDescription: String? {
             switch self {
             case .emptyModel:
-                return "まだ立体がありません。3面すべてに色を塗ってください。"
+                return "まだ立体がありません。どこかの面に色を塗ってください。"
             case .metalUnavailable:
                 return "この端末では動画を作れませんでした。"
             case .writerUnavailable:

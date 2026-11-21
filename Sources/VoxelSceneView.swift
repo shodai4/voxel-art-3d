@@ -26,21 +26,34 @@ enum VoxelEngine {
         let camera: SCNNode
     }
 
-    /// 3面の視体積交差。
+    /// 3面図からの押し出し。
     /// 正面は「上から row 行目・左から column 列目」、横は「上から row 行目・奥から depth 列目」、
-    /// 上は「奥から depth 行目・左から column 列目」で、3面すべてに色がある座標だけを立体にする。
+    /// 上は「奥から depth 行目・左から column 列目」。
+    /// 塗った面は「そのマスに色がある」座標、塗っていない面は「全マスあり（全通し）」として扱うので、
+    /// 1面だけでもその形が奥へ押し出されて立体になり、2面以上塗ると交差した形になる。
+    /// 3面とも未塗りなら空。色は正面 → 横 → 上の順で先にあるものを採る。
     static func cells(front: VoxelGrid, side: VoxelGrid, top: VoxelGrid) -> [Cell] {
         let size = front.size
         guard size > 0, side.size == size, top.size == size else { return [] }
 
+        let frontActive = !front.isEmpty
+        let sideActive = !side.isEmpty
+        let topActive = !top.isEmpty
+        guard frontActive || sideActive || topActive else { return [] }
+
         var result: [Cell] = []
         for depth in 0..<size {
             for column in 0..<size {
-                guard top[depth, column] != nil else { continue }
+                let topColor = top[depth, column]
+                guard !topActive || topColor != nil else { continue }
                 for row in 0..<size {
-                    guard let frontColor = front[row, column], side[row, depth] != nil else { continue }
+                    let frontColor = front[row, column]
+                    guard !frontActive || frontColor != nil else { continue }
+                    let sideColor = side[row, depth]
+                    guard !sideActive || sideColor != nil else { continue }
+                    guard let color = frontColor ?? sideColor ?? topColor else { continue }
                     result.append(
-                        Cell(x: column, y: size - 1 - row, z: depth, color: frontColor)
+                        Cell(x: column, y: size - 1 - row, z: depth, color: color)
                     )
                 }
             }
@@ -222,11 +235,14 @@ enum SceneRotation {
 /// SceneKit のビュー。ドラッグで回転、ピンチで拡大縮小できる。
 struct VoxelSceneView: UIViewRepresentable {
     @ObservedObject var document: VoxelDocument
+    /// ドキュメントの版番号。これが変わったらシーンを作り直す。
+    var revision: Int
     var isRotating: Bool
 
     final class Coordinator {
         var rotor: SCNNode?
         var aspect: Float = 0
+        var revision = -1
         var front = VoxelGrid(size: VoxelDocument.freeSize)
         var side = VoxelGrid(size: VoxelDocument.freeSize)
         var top = VoxelGrid(size: VoxelDocument.freeSize)
@@ -254,6 +270,7 @@ struct VoxelSceneView: UIViewRepresentable {
         let aspectChanged = abs(aspect - coordinator.aspect) > 0.05
 
         if aspectChanged
+            || coordinator.revision != revision
             || coordinator.front != document.front
             || coordinator.side != document.side
             || coordinator.top != document.top {
@@ -283,6 +300,7 @@ struct VoxelSceneView: UIViewRepresentable {
         coordinator.front = document.front
         coordinator.side = document.side
         coordinator.top = document.top
+        coordinator.revision = revision
         coordinator.aspect = aspect
 
         SceneRotation.apply(isRotating, to: built.rotor)

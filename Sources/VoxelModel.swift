@@ -127,6 +127,10 @@ final class VoxelDocument: ObservableObject {
     @Published var top: VoxelGrid
     @Published var isPro: Bool = false
 
+    /// 絵を変えた回数。プレビューの作り直しを見落とさないための目印に使う。
+    /// マス目の中身を比べるだけでは取りこぼす場面があったので、変更のたびに1つ進める。
+    @Published private(set) var revision: Int = 0
+
     init(size: Int = VoxelDocument.freeSize) {
         front = VoxelGrid(size: size)
         side = VoxelGrid(size: size)
@@ -161,6 +165,7 @@ final class VoxelDocument: ObservableObject {
         case .side: side[row, column] = color
         case .top: top[row, column] = color
         }
+        revision &+= 1
     }
 
     func clear(_ face: VoxelFace) {
@@ -169,12 +174,14 @@ final class VoxelDocument: ObservableObject {
         case .side: side.clear()
         case .top: top.clear()
         }
+        revision &+= 1
     }
 
     func clearAll() {
         front.clear()
         side.clear()
         top.clear()
+        revision &+= 1
     }
 
     func resize(to size: Int) {
@@ -182,5 +189,6 @@ final class VoxelDocument: ObservableObject {
         front = front.resized(to: size)
         side = side.resized(to: size)
         top = top.resized(to: size)
+        revision &+= 1
     }
 }

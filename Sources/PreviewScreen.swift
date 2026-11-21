@@ -57,13 +57,15 @@ struct PreviewScreen: View {
 
     private var stage: some View {
         ZStack {
-            VoxelSceneView(document: document, isRotating: isRotating)
+            VoxelSceneView(document: document, revision: document.revision, isRotating: isRotating)
+                // エディタへ戻って描き足したあとの2回目も、必ず新しいシーンで開き直す。
+                .id(document.revision)
 
             if voxelCount == 0 {
                 VStack(spacing: 6) {
                     Text("まだ立体がありません")
                         .font(.subheadline.weight(.semibold))
-                    Text("3面すべてに色がある場所だけが立体になります。")
+                    Text("どれかの面に色を塗ると、その形が奥へ押し出されて立体になります。")
                         .font(.caption)
                         .multilineTextAlignment(.center)
                 }
