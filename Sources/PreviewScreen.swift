@@ -22,6 +22,7 @@ struct PreviewScreen: View {
         }
         .navigationTitle("3Dプレビュー")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .sheet(item: $exportedVideo) { video in
             ShareSheet(items: [video.url])
         }

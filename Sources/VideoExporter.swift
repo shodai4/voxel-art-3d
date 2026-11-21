@@ -50,7 +50,7 @@ enum VideoExporter {
     }
 
     private static func renderMovie(front: VoxelGrid, side: VoxelGrid, top: VoxelGrid) throws -> URL {
-        let built = VoxelEngine.makeScene(front: front, side: side, top: top)
+        let built = VoxelEngine.makeScene(front: front, side: side, top: top, aspect: 1)
         guard !built.rotor.childNodes.isEmpty else { throw Failure.emptyModel }
 
         guard let device = MTLCreateSystemDefaultDevice(),

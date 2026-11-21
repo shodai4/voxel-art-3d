@@ -10,7 +10,7 @@ enum VoxelEngine {
     static let fieldOfView: CGFloat = 40
     /// 自動回転1周の秒数。書き出す動画の長さもこれに合わせる。
     static let rotationDuration: TimeInterval = 6
-    static let cameraMargin: Float = 1.35
+    static let cameraMargin: Float = 1.1
 
     /// 立体にする1マス。x は右、y は上、z は手前が大きい。
     struct Cell {
@@ -48,7 +48,13 @@ enum VoxelEngine {
         return result
     }
 
-    static func makeScene(front: VoxelGrid, side: VoxelGrid, top: VoxelGrid) -> BuiltScene {
+    /// `aspect` は表示領域の 横÷縦。縦長の画面では横の画角が狭くなるので、それも見て距離を決める。
+    static func makeScene(
+        front: VoxelGrid,
+        side: VoxelGrid,
+        top: VoxelGrid,
+        aspect: Float
+    ) -> BuiltScene {
         let scene = SCNScene()
         scene.background.contents = UIColor(white: 0.055, alpha: 1)
 
@@ -57,7 +63,8 @@ enum VoxelEngine {
 
         let cells = cells(front: front, side: side, top: top)
         var boxes: [String: SCNBox] = [:]
-        var span: CGFloat = voxelSize * CGFloat(max(front.size, 1))
+        let fullWidth = Float(voxelSize) * Float(max(front.size, 1))
+        var radius = fullWidth * sqrt(3) / 2
 
         if let bounds = bounds(of: cells) {
             let centerX = Float(bounds.minX + bounds.maxX) / 2
@@ -81,23 +88,25 @@ enum VoxelEngine {
             let width = Float(bounds.maxX - bounds.minX + 1) * voxel
             let height = Float(bounds.maxY - bounds.minY + 1) * voxel
             let depth = Float(bounds.maxZ - bounds.minZ + 1) * voxel
-            span = CGFloat(sqrt(width * width + height * height + depth * depth) / 2)
+            radius = sqrt(width * width + height * height + depth * depth) / 2
         }
 
         scene.rootNode.addChildNode(rotor)
         scene.rootNode.addChildNode(makeKeyLight())
         scene.rootNode.addChildNode(makeAmbientLight())
 
-        let camera = makeCamera(distance: cameraDistance(forRadius: Float(span)))
+        let camera = makeCamera(distance: cameraDistance(forRadius: radius, aspect: aspect))
         scene.rootNode.addChildNode(camera)
 
         return BuiltScene(scene: scene, rotor: rotor, camera: camera)
     }
 
-    /// 立体全体が余白付きで収まるカメラ距離。
-    static func cameraDistance(forRadius radius: Float) -> Float {
+    /// 立体全体が余白付きで収まるカメラ距離。狭いほうの画角に合わせる。
+    static func cameraDistance(forRadius radius: Float, aspect: Float) -> Float {
         let halfFOV = Float(fieldOfView) / 2 * .pi / 180
-        let fitted = radius / tan(halfFOV) * cameraMargin
+        let horizontalHalfFOV = atan(tan(halfFOV) * max(aspect, 0.2))
+        let tightest = min(halfFOV, horizontalHalfFOV)
+        let fitted = radius / sin(tightest) * cameraMargin
         return max(fitted, 1.0)
     }
 
@@ -217,6 +226,7 @@ struct VoxelSceneView: UIViewRepresentable {
 
     final class Coordinator {
         var rotor: SCNNode?
+        var aspect: Float = 0
         var front = VoxelGrid(size: VoxelDocument.freeSize)
         var side = VoxelGrid(size: VoxelDocument.freeSize)
         var top = VoxelGrid(size: VoxelDocument.freeSize)
@@ -234,26 +244,37 @@ struct VoxelSceneView: UIViewRepresentable {
         view.antialiasingMode = .multisampling4X
         view.preferredFramesPerSecond = 60
 
-        applyScene(to: view, coordinator: context.coordinator)
+        applyScene(to: view, coordinator: context.coordinator, aspect: Self.aspect(of: view))
         return view
     }
 
     func updateUIView(_ uiView: SCNView, context: Context) {
         let coordinator = context.coordinator
-        if coordinator.front != document.front
+        let aspect = Self.aspect(of: uiView)
+        let aspectChanged = abs(aspect - coordinator.aspect) > 0.05
+
+        if aspectChanged
+            || coordinator.front != document.front
             || coordinator.side != document.side
             || coordinator.top != document.top {
-            applyScene(to: uiView, coordinator: coordinator)
+            applyScene(to: uiView, coordinator: coordinator, aspect: aspect)
         } else {
             SceneRotation.apply(isRotating, to: coordinator.rotor)
         }
     }
 
-    private func applyScene(to view: SCNView, coordinator: Coordinator) {
+    /// まだレイアウト前で大きさが取れないときは、縦長のスマホの比率を仮に置く。
+    private static func aspect(of view: UIView) -> Float {
+        guard view.bounds.width > 1, view.bounds.height > 1 else { return 0.5 }
+        return Float(view.bounds.width / view.bounds.height)
+    }
+
+    private func applyScene(to view: SCNView, coordinator: Coordinator, aspect: Float) {
         let built = VoxelEngine.makeScene(
             front: document.front,
             side: document.side,
-            top: document.top
+            top: document.top,
+            aspect: aspect
         )
         view.scene = built.scene
         view.pointOfView = built.camera
@@ -262,6 +283,7 @@ struct VoxelSceneView: UIViewRepresentable {
         coordinator.front = document.front
         coordinator.side = document.side
         coordinator.top = document.top
+        coordinator.aspect = aspect
 
         SceneRotation.apply(isRotating, to: built.rotor)
     }
