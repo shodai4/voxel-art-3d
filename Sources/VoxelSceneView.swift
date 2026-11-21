@@ -1,11 +1,14 @@
 import SceneKit
 import SwiftUI
 import UIKit
+import simd
 
 /// 塗ったマスを SCNBox の集まりに変換する。
 enum VoxelEngine {
     static let voxelSize: CGFloat = 0.1
     static let chamferRadius: CGFloat = 0.006
+    /// カメラまでの距離。10x10 の全体が縦長の画面に収まる値。
+    static let cameraDistance: Float = 3.6
 
     static func makeScene(grid: VoxelGrid) -> SCNScene {
         let scene = SCNScene()
@@ -65,11 +68,9 @@ struct VoxelSceneView: UIViewRepresentable {
         cameraNode.camera?.zFar = 100
 
         let center = VoxelEngine.gridCenter
-        cameraNode.position = SCNVector3(
-            center.x + 0.95,
-            center.y + 1.05,
-            center.z + 1.95
-        )
+        let direction = simd_normalize(SIMD3<Float>(0.45, 0.52, 1.0))
+        let eye = SIMD3<Float>(center.x, center.y, center.z) + direction * VoxelEngine.cameraDistance
+        cameraNode.position = SCNVector3(eye.x, eye.y, eye.z)
         cameraNode.look(
             at: center,
             up: SCNVector3(0, 1, 0),
