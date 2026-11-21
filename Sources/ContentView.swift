@@ -1,18 +1,22 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var grid = VoxelGrid()
-    @State private var selectedID = "blue"
+    @StateObject private var document = VoxelDocument()
+    @State private var brush: Brush = .color(VoxelColor.palette[0])
+    @State private var face: VoxelFace = .front
+    @State private var showPaywall = false
+    @State private var showClearOptions = false
 
-    private let palette = PaletteColor.defaults
-
-    private var selected: PaletteColor {
-        palette.first(where: { $0.id == selectedID }) ?? palette[0]
+    private enum Brush: Equatable {
+        case color(VoxelColor)
+        case eraser
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
+                facePicker
+                hintLine
                 paletteBar
                 gridBoard
                 statusLine
@@ -20,65 +24,107 @@ struct ContentView: View {
                 previewLink
             }
             .padding(.horizontal, 16)
-            .padding(.top, 6)
+            .padding(.top, 4)
             .padding(.bottom, 12)
             .navigationTitle("ボクセルアート")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    sizeMenu
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("全消し") {
-                        grid.clear()
+                        showClearOptions = true
                     }
-                    .disabled(grid.isEmpty)
+                    .disabled(document.isEmpty)
+                }
+            }
+            .confirmationDialog("消す範囲を選ぶ", isPresented: $showClearOptions, titleVisibility: .visible) {
+                Button("\(face.title)の面を消す", role: .destructive) {
+                    document.clear(face)
+                }
+                Button("3面すべて消す", role: .destructive) {
+                    document.clearAll()
+                }
+                Button("キャンセル", role: .cancel) {}
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallSheet()
+            }
+        }
+    }
+
+    private var facePicker: some View {
+        Picker("面", selection: $face) {
+            ForEach(VoxelFace.allCases) { item in
+                Text(item.title).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var hintLine: some View {
+        HStack(spacing: 6) {
+            Text(face.hint)
+            Spacer()
+            Text("\(document.size)×\(document.size)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private var paletteBar: some View {
+        HStack(spacing: 8) {
+            ForEach(VoxelColor.palette) { item in
+                swatch(for: .color(item), label: item.name) {
+                    RoundedRectangle(cornerRadius: 8).fill(item.color)
+                }
+            }
+            swatch(for: .eraser, label: "消しゴム") {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(Color(white: 0.16))
+                    Image(systemName: "eraser.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.85))
                 }
             }
         }
     }
 
-    private var paletteBar: some View {
-        HStack(spacing: 8) {
-            ForEach(palette) { item in
-                swatch(item)
+    private func swatch<Content: View>(
+        for value: Brush,
+        label: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let isSelected = brush == value
+        return content()
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(
+                        isSelected ? Color.primary : Color.primary.opacity(0.12),
+                        lineWidth: isSelected ? 2.5 : 1
+                    )
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onTapGesture {
+                brush = value
             }
-        }
-    }
-
-    private func swatch(_ item: PaletteColor) -> some View {
-        let isSelected = item.id == selectedID
-        return ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(item.isEraser ? Color(white: 0.16) : item.color)
-            if item.isEraser {
-                Image(systemName: "eraser.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.85))
-            }
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(
-                    isSelected ? Color.primary : Color.primary.opacity(0.12),
-                    lineWidth: isSelected ? 2.5 : 1
-                )
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 36)
-        .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture {
-            selectedID = item.id
-        }
-        .accessibilityLabel(item.isEraser ? "消しゴム" : colorName(item.id))
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     private var gridBoard: some View {
         GeometryReader { geometry in
             let spacing: CGFloat = 2
-            let cellSize = (geometry.size.width - spacing * CGFloat(VoxelGrid.size - 1))
-                / CGFloat(VoxelGrid.size)
+            let cellSize = (geometry.size.width - spacing * CGFloat(document.size - 1))
+                / CGFloat(document.size)
 
             VStack(spacing: spacing) {
-                ForEach(0..<VoxelGrid.size, id: \.self) { row in
+                ForEach(0..<document.size, id: \.self) { row in
                     HStack(spacing: spacing) {
-                        ForEach(0..<VoxelGrid.size, id: \.self) { column in
+                        ForEach(0..<document.size, id: \.self) { column in
                             cell(row: row, column: column)
                                 .frame(width: cellSize, height: cellSize)
                         }
@@ -90,12 +136,15 @@ struct ContentView: View {
     }
 
     private func cell(row: Int, column: Int) -> some View {
-        let color = grid[row, column]
+        let color = document.color(face, row: row, column: column)
         return RoundedRectangle(cornerRadius: 2)
-            .fill(color ?? Color(white: 0.12))
+            .fill(color?.color ?? Color(white: 0.12))
             .overlay(
                 RoundedRectangle(cornerRadius: 2)
-                    .strokeBorder(Color.primary.opacity(color == nil ? 0.10 : 0.0), lineWidth: 0.5)
+                    .strokeBorder(
+                        Color.primary.opacity(color == nil ? 0.10 : 0.0),
+                        lineWidth: 0.5
+                    )
             )
             .contentShape(Rectangle())
             .onTapGesture {
@@ -105,7 +154,7 @@ struct ContentView: View {
 
     private var statusLine: some View {
         HStack {
-            Text("塗ったマス \(grid.paintedCount) / \(VoxelGrid.size * VoxelGrid.size)")
+            Text("塗ったマス \(document.grid(for: face).paintedCount) / \(document.size * document.size)")
             Spacer()
             Text("同じ色をもう一度タップで消えます")
                 .foregroundStyle(.secondary)
@@ -113,26 +162,41 @@ struct ContentView: View {
         .font(.footnote)
     }
 
+    private var sizeMenu: some View {
+        Menu {
+            Section("マス目") {
+                Button {
+                    document.resize(to: VoxelDocument.freeSize)
+                } label: {
+                    if document.size == VoxelDocument.freeSize {
+                        Label("10×10", systemImage: "checkmark")
+                    } else {
+                        Text("10×10")
+                    }
+                }
+                Button {
+                    if document.isPro {
+                        document.resize(to: VoxelDocument.proSize)
+                    } else {
+                        showPaywall = true
+                    }
+                } label: {
+                    if document.isPro {
+                        Text("16×16")
+                    } else {
+                        Label("16×16（Pro）", systemImage: "lock.fill")
+                    }
+                }
+            }
+        } label: {
+            Text("\(document.size)×\(document.size)")
+                .font(.footnote.weight(.semibold))
+        }
+    }
+
     private var previewLink: some View {
         NavigationLink {
-            VoxelSceneView(grid: grid)
-                .overlay(alignment: .bottom) {
-                    if grid.isEmpty {
-                        Text("まだ色が塗られていません")
-                            .font(.footnote)
-                            .foregroundStyle(Color.white.opacity(0.7))
-                            .padding(.bottom, 16)
-                    }
-                }
-                .navigationTitle("3Dプレビュー")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Text("ドラッグで回転")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            PreviewScreen(document: document)
         } label: {
             Text("3Dで見る")
                 .font(.headline)
@@ -144,23 +208,16 @@ struct ContentView: View {
     }
 
     private func paint(row: Int, column: Int) {
-        if selected.isEraser {
-            grid[row, column] = nil
-        } else if grid[row, column] == selected.color {
-            grid[row, column] = nil
-        } else {
-            grid[row, column] = selected.color
-        }
-    }
-
-    private func colorName(_ id: String) -> String {
-        switch id {
-        case "blue": return "青"
-        case "red": return "赤"
-        case "green": return "緑"
-        case "yellow": return "黄"
-        case "orange": return "オレンジ"
-        default: return "色"
+        let current = document.color(face, row: row, column: column)
+        switch brush {
+        case .eraser:
+            document.paint(nil, face: face, row: row, column: column)
+        case .color(let color):
+            if current == color {
+                document.paint(nil, face: face, row: row, column: column)
+            } else {
+                document.paint(color, face: face, row: row, column: column)
+            }
         }
     }
 }
